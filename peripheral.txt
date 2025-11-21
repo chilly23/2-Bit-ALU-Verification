@@ -1,0 +1,11 @@
+yellow - nand - 8
+green - a! - 9
+blue - or - 10
+pink - cout - 5
+grey - sum - 6
+white - and - 11
+brown - xor - 12
+black - +5(active) - 7
+
+Yellow1 - input - a
+Yellow2 - input - b

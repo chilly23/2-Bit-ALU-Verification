@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2-Bit ALU Verification Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
+            color: #1a1a1a;
+        }
+        .mono-border { border: 2px solid #1a1a1a; }
+        .mono-bg { background-color: #ffffff; }
+        .btn-active { background-color: #1a1a1a; color: #ffffff; }
+        .btn-inactive { background-color: #e5e5e5; color: #1a1a1a; }
+        .verification-ok { background-color: #10B981; } /* Tailwind green-500 */
+        .verification-error { background-color: #EF4444; } /* Tailwind red-500 */
+        .verification-mixed { background-color: #FBBF24; } /* Tailwind amber-400 */
+        .input-block { transition: all 0.1s ease-in-out; }
+
+        /* Custom scrollbar for better monochrome look */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        /* The 'About' modal */
+        #aboutModal {
+            z-index: 50; /* Above everything */
+            background-color: rgba(0, 0, 0, 0.7);
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <!-- About/Help Modal -->
+    <div id="aboutModal" class="fixed inset-0 hidden items-center justify-center">
+        <div class="mono-bg mono-border p-6 w-11/12 md:w-1/2 shadow-2xl relative">
+            <h3 class="text-xl font-bold mb-4">ALU Verification Monitor - Help</h3>
+            <p class="text-sm mb-4">This interface controls and verifies a physical 2-bit ALU circuit.</p>
+            <ul class="list-disc list-inside text-sm space-y-2">
+                <li><strong>Mode Control:</strong> Switch between Manual Input (setting A/B directly) and Random Input (Python automatically toggles A/B).</li>
+                <li><strong>Verification Speed:</strong> The system updates every 500ms, driven by the Python server.</li>
+                <li><strong>Signal Colors:</strong>
+                    <ul class="list-disc list-inside ml-4">
+                        <li><span class="text-green-600 font-bold">GREEN:</span> Actual ALU output matches the Expected Truth Table value.</li>
+                        <li><span class="text-red-600 font-bold">RED:</span> Actual ALU output does NOT match the Expected Truth Table value.</li>
+                    </ul>
+                </li>
+            </ul>
+            <h4 class="text-lg font-bold mt-4 mb-2">Pin Mapping (Arduino Uno)</h4>
+            <div class="grid grid-cols-2 text-xs">
+                <p>A Input (Yellow1): Pin 3</p><p>B Input (Yellow2): Pin 4</p>
+                <p>NAND (Yellow): Pin 8</p><p>NOT A (Green): Pin 9</p>
+                <p>OR (Blue): Pin 10</p><p>AND (White): Pin 11</p>
+                <p>XOR (Brown): Pin 12</p><p>SUM (Grey): Pin 6</p>
+                <p>COUT (Pink): Pin 5</p>
+            </div>
+            <button onclick="toggleModal(false)" class="absolute top-2 right-4 text-2xl font-bold">&times;</button>
+        </div>
+    </div>
+
+
+    <header class="flex justify-between items-center mb-6 pb-2 mono-border border-b-2">
+        <h1 class="text-2xl md:text-3xl font-bold">2-Bit ALU Monitor</h1>
+        <button onclick="toggleModal(true)" class="text-sm py-1 px-3 mono-border btn-inactive hover:bg-gray-200">Help/About</button>
+    </header>
+
+    <main class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- Column 1: Control Panel -->
+        <section class="lg:col-span-1 mono-bg mono-border p-4 shadow-md">
+            <h2 class="text-xl font-bold mb-4">Control Panel</h2>
+
+            <!-- Connection Status -->
+            <div class="mb-6">
+                <p class="text-sm font-semibold mb-1">Status:</p>
+                <div id="connection-status" class="py-1 px-3 text-white rounded text-center font-bold text-sm">DISCONNECTED</div>
+            </div>
+
+            <!-- Mode Selection -->
+            <div class="mb-6">
+                <p class="text-sm font-semibold mb-2">Operation Mode:</p>
+                <div class="flex space-x-2">
+                    <button id="btn-manual" class="w-1/2 py-2 text-sm mono-border rounded btn-active" onclick="setMode('M')">MANUAL</button>
+                    <button id="btn-random" class="w-1/2 py-2 text-sm mono-border rounded btn-inactive" onclick="setMode('R')">RANDOM</button>
+                </div>
+            </div>
+
+            <!-- Manual Input Controls (Only visible in Manual Mode) -->
+            <div id="manual-controls" class="space-y-4">
+                <p class="text-sm font-semibold">Set Inputs (Manual Mode)</p>
+                
+                <div class="flex items-center space-x-4">
+                    <span class="font-mono text-lg w-12">A:</span>
+                    <button class="input-block w-1/2 py-2 text-lg mono-border rounded btn-active" data-input-a="0" onclick="setManualInput('A', 0)">0</button>
+                    <button class="input-block w-1/2 py-2 text-lg mono-border rounded btn-inactive" data-input-a="1" onclick="setManualInput('A', 1)">1</button>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <span class="font-mono text-lg w-12">B:</span>
+                    <button class="input-block w-1/2 py-2 text-lg mono-border rounded btn-active" data-input-b="0" onclick="setManualInput('B', 0)">0</button>
+                    <button class="input-block w-1/2 py-2 text-lg mono-border rounded btn-inactive" data-input-b="1" onclick="setManualInput('B', 1)">1</button>
+                </div>
+            </div>
+
+            <div id="random-status" class="hidden text-center p-4 bg-gray-100 rounded text-sm mt-4">
+                 <p class="font-bold">Random Input Active</p>
+                 <p class="text-xs">A/B are changing every 500ms.</p>
+            </div>
+        </section>
+
+        <!-- Column 2: ALU Block Diagram & Live Data -->
+        <section class="lg:col-span-2 mono-bg mono-border p-4 shadow-md">
+            <h2 class="text-xl font-bold mb-4">ALU Block Monitor</h2>
+            <div class="flex justify-between items-center mb-4">
+                <p class="text-sm">Current Cycle Speed: <span class="font-mono">500ms</span></p>
+                <p class="text-sm font-bold">Overall Status: <span id="overall-status" class="font-bold text-lg text-gray-500">INIT</span></p>
+            </div>
+
+            <div class="flex items-center justify-center my-8">
+                <!-- ALU Input Lines -->
+                <div class="flex flex-col space-y-8 mr-4 text-right">
+                    <div class="font-mono text-lg">A: <span id="val-a" class="font-bold">0</span></div>
+                    <div class="font-mono text-lg">B: <span id="val-b" class="font-bold">0</span></div>
+                </div>
+
+                <!-- ALU BLOCK -->
+                <div class="mono-border p-6 w-64 h-64 flex flex-col justify-between relative shadow-lg">
+                    <h3 class="text-xl font-bold text-center">2-BIT ALU</h3>
+                    <div class="text-xs text-center space-y-1">
+                        <p>AND, OR, NAND, XOR</p>
+                        <p>NOT A</p>
+                        <p>SUM (A+B), COUT</p>
+                    </div>
+                    <div class="text-xs text-center font-mono">
+                        <p id="cycle-stamp" class="text-gray-500"></p>
+                    </div>
+                </div>
+
+                <!-- ALU Output Lines -->
+                <div class="flex flex-col ml-4 text-left text-xs space-y-1">
+                    <div id="out-nand" class="mono-output-item">NAND: <span class="val-out">0</span></div>
+                    <div id="out-not-a" class="mono-output-item">NOT A: <span class="val-out">0</span></div>
+                    <div id="out-or" class="mono-output-item">OR: <span class="val-out">0</span></div>
+                    <div id="out-and" class="mono-output-item">AND: <span class="val-out">0</span></div>
+                    <div id="out-xor" class="mono-output-item">XOR: <span class="val-out">0</span></div>
+                    <div id="out-sum" class="mono-output-item">SUM: <span class="val-out">0</span></div>
+                    <div id="out-cout" class="mono-output-item">C-OUT: <span class="val-out">0</span></div>
+                </div>
+            </div>
+            
+            <p class="text-xs text-gray-600 text-center mt-4">Note: Pin 13 (Clock) is generated physically on the Arduino, but the data updates follow the 500ms cycle.</p>
+
+        </section>
+
+        <!-- Column 3: Truth Table & Report -->
+        <section class="lg:col-span-3 mono-bg mono-border p-4 shadow-md">
+            <h2 class="text-xl font-bold mb-4">Verification Report & Truth Table</h2>
+            
+            <!-- Truth Table -->
+            <div class="overflow-x-auto mb-6">
+                <table class="min-w-full text-xs text-center mono-border">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="p-2 mono-border border-b-2" colspan="2">Inputs</th>
+                            <th class="p-2 mono-border border-b-2" colspan="7">Actual Outputs (Live)</th>
+                        </tr>
+                        <tr>
+                            <th class="p-2 mono-border border-b-2">A</th>
+                            <th class="p-2 mono-border border-b-2">B</th>
+                            <th class="p-2 mono-border border-b-2">NAND (Exp: 1/1/1/0)</th>
+                            <th class="p-2 mono-border border-b-2">NOT A (Exp: 1/1/0/0)</th>
+                            <th class="p-2 mono-border border-b-2">OR (Exp: 0/1/1/1)</th>
+                            <th class="p-2 mono-border border-b-2">AND (Exp: 0/0/0/1)</th>
+                            <th class="p-2 mono-border border-b-2">XOR (Exp: 0/1/1/0)</th>
+                            <th class="p-2 mono-border border-b-2">SUM (Exp: 0/1/1/0)</th>
+                            <th class="p-2 mono-border border-b-2">C-OUT (Exp: 0/0/0/1)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="truth-table-body">
+                        <!-- Table rows generated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Detailed Report -->
+            <h3 class="text-lg font-bold mb-2">Detailed Mismatch Report</h3>
+            <div id="mismatch-report" class="p-3 mono-border bg-gray-50 text-sm h-32 overflow-y-auto">
+                <p class="text-gray-500">Verification details will appear here...</p>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // WebSocket connection URL
+        const WS_URL = 'ws://127.0.0.1:8765';
+        let ws;
+        let currentMode = 'M'; // Default to Manual
+
+        // --- DOM Elements ---
+        const connStatus = document.getElementById('connection-status');
+        const overallStatus = document.getElementById('overall-status');
+        const manualControls = document.getElementById('manual-controls');
+        const randomStatus = document.getElementById('random-status');
+        const btnManual = document.getElementById('btn-manual');
+        const btnRandom = document.getElementById('btn-random');
+        const mismatchReport = document.getElementById('mismatch-report');
+        const truthTableBody = document.getElementById('truth-table-body');
+        const aboutModal = document.getElementById('aboutModal');
+
+        // Initial Inputs
+        let currentA = 0;
+        let currentB = 0;
+
+        // ALU Output Pins Mappings
+        const OUTPUT_PINS_ORDER = ["NAND", "NOT_A", "OR", "COUT", "SUM", "AND", "XOR"]; 
+        // Note: The truth table headers are slightly reordered for readability 
+        // (AND, XOR grouped, then SUM, COUT). The logic handles this remapping.
+        const DISPLAY_PINS_ORDER = ["NAND", "NOT_A", "OR", "AND", "XOR", "SUM", "COUT"];
+
+
+        // Expected Truth Table (Simplified for display and mapping verification)
+        // Key: A, B | Value: [NAND, NOT_A, OR, COUT, SUM, AND, XOR] (Matching Arduino output order)
+        const TRUTH_TABLE_DATA = [
+            { A: 0, B: 0, Expected: [1, 1, 0, 0, 0, 0, 0] },
+            { A: 0, B: 1, Expected: [1, 1, 1, 0, 1, 0, 1] }, 
+            { A: 1, B: 0, Expected: [1, 0, 1, 0, 1, 0, 1] },
+            { A: 1, B: 1, Expected: [0, 0, 1, 1, 0, 1, 0] }
+        ];
+
+        // --- Utility Functions ---
+
+        function toggleModal(show) {
+            aboutModal.style.display = show ? 'flex' : 'none';
+        }
+
+        function updateConnectionStatus(isConnected) {
+            if (isConnected) {
+                connStatus.textContent = "CONNECTED";
+                connStatus.className = "py-1 px-3 text-white rounded text-center font-bold text-sm bg-green-600";
+            } else {
+                connStatus.textContent = "DISCONNECTED";
+                connStatus.className = "py-1 px-3 text-white rounded text-center font-bold text-sm bg-red-600";
+                overallStatus.textContent = "N/A";
+                overallStatus.className = "font-bold text-lg text-gray-500";
+            }
+        }
+
+        function createTruthTable() {
+            TRUTH_TABLE_DATA.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.id = `tt-${row.A}${row.B}`;
+                tr.className = 'hover:bg-gray-50';
+                
+                // Inputs (Static)
+                tr.innerHTML += `<td class="p-2 mono-border">${row.A}</td>`;
+                tr.innerHTML += `<td class="p-2 mono-border">${row.B}</td>`;
+                
+                // Actual Outputs (Live data columns)
+                // We use the DISPLAY_PINS_ORDER here to match the header, but the IDs map to the logic gate names
+                DISPLAY_PINS_ORDER.forEach(pin => {
+                    // Find the expected value for display purposes (optional, as headers show it)
+                    // The actual verification relies on the Python server's data.
+                    tr.innerHTML += `<td id="tt-actual-${row.A}${row.B}-${pin.toLowerCase().replace('-', '_')}" class="p-2 mono-border font-bold text-gray-400">?</td>`;
+                });
+                
+                truthTableBody.appendChild(tr);
+            });
+        }
+
+        // --- Core Functions ---
+
+        function handleMessage(data) {
+            const state = JSON.parse(data);
+
+            // Update Input Display
+            document.getElementById('val-a').textContent = state.A;
+            document.getElementById('val-b').textContent = state.B;
+            
+            // Update cycle timestamp
+            const time = new Date(state.Timestamp * 1000).toLocaleTimeString();
+            document.getElementById('cycle-stamp').textContent = `Last Update: ${time}`;
+
+            // 1. Update Overall Status
+            let statusClass = "font-bold text-lg ";
+            let statusText = state.VerificationStatus;
+
+            if (state.VerificationStatus === "OK") {
+                statusClass += "text-green-600";
+                statusText = "VERIFIED OK";
+            } else if (state.VerificationStatus === "ERROR") {
+                statusClass += "text-red-600";
+                statusText = "VERIFICATION ERROR";
+            } else if (state.VerificationStatus === "MIXED") {
+                statusClass += "text-amber-600";
+                statusText = "MIXED ERRORS";
+            }
+            overallStatus.className = statusClass;
+            overallStatus.textContent = statusText;
+
+            // 2. Update Live Output Signals & Mismatch Report
+            let reportHTML = '';
+            let currentInputsKey = `${state.A}${state.B}`;
+            
+            // Iterate over the verification details provided by the Python server
+            Object.keys(state.VerificationDetails || {}).forEach(pinKey => {
+                const verification = state.VerificationDetails[pinKey];
+                
+                // Map the Python key (e.g., NOT_A) to the HTML element ID (e.g., out-not-a)
+                const elementId = `out-${pinKey.toLowerCase().replace('_', '-')}`;
+                const element = document.getElementById(elementId);
+                const valueSpan = element ? element.querySelector('.val-out') : null;
+
+                if (verification && valueSpan) {
+                    valueSpan.textContent = verification.Actual;
+                    valueSpan.className = `val-out font-bold ${verification.Match ? 'text-green-600' : 'text-red-600'}`;
+
+                    // Add to report if mismatch
+                    if (!verification.Match) {
+                        reportHTML += `<p class="text-red-600 font-semibold mb-1">Mismatch on ${pinKey}: A=${state.A}, B=${state.B} - Expected ${verification.Expected}, Got ${verification.Actual}</p>`;
+                    }
+                }
+            });
+
+            mismatchReport.innerHTML = reportHTML || '<p class="text-gray-500">No verification mismatches found in the current cycle.</p>';
+
+            // 3. Update Truth Table History
+            // Highlight the current input row
+            document.querySelectorAll('#truth-table-body tr').forEach(row => {
+                row.classList.remove('bg-yellow-100', 'font-bold');
+            });
+            const activeRow = document.getElementById(`tt-${currentInputsKey}`);
+            if (activeRow) {
+                activeRow.classList.add('bg-yellow-100', 'font-bold');
+            }
+
+            // Update the 'Actual' columns in the truth table
+            // Update truth table cell colors
+            // Update truth table cell colors
+DISPLAY_PINS_ORDER.forEach(pin => {
+    const pinKey = pin.toUpperCase().replace('-', '_');
+    const verification = state.VerificationDetails ? state.VerificationDetails[pinKey] : null;
+    const cellId = `tt-actual-${currentInputsKey}-${pin.toLowerCase().replace('_', '-')}`;
+    const cell = document.getElementById(cellId);
+
+    if (cell && verification) {
+        cell.textContent = verification.Actual;
+
+        // Remove any previous styles
+        cell.style.backgroundColor = "";
+        cell.style.color = "";
+        cell.classList.remove("font-bold");
+
+        // Apply bright red or green
+        if (verification.Match) {
+            cell.style.backgroundColor = "#008000";   // bright green
+            cell.style.color = "#ffffff";             // white text
+        } else {
+            cell.style.backgroundColor = "#C91B00";   // bright red
+            cell.style.color = "#ffffff";             // white text
+        }
+
+        cell.classList.add("font-bold");
+    }
+});
+
+
+        }
+
+        function setMode(mode) {
+            if (currentMode === mode) return;
+            currentMode = mode;
+
+            // Send command to Python server
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ mode: mode }));
+            }
+            
+            // Update UI
+            if (mode === 'M') {
+                btnManual.classList.add('btn-active');
+                btnManual.classList.remove('btn-inactive');
+                btnRandom.classList.add('btn-inactive');
+                btnRandom.classList.remove('btn-active');
+                manualControls.style.display = 'block';
+                randomStatus.classList.add('hidden');
+                // Re-send current manual input immediately
+                setManualInput('A', currentA, false);
+                setManualInput('B', currentB, true); 
+            } else if (mode === 'R') {
+                btnRandom.classList.add('btn-active');
+                btnRandom.classList.remove('btn-inactive');
+                btnManual.classList.add('btn-inactive');
+                btnManual.classList.remove('btn-active');
+                manualControls.style.display = 'none';
+                randomStatus.classList.remove('hidden');
+            }
+        }
+
+        function setManualInput(inputName, value, send = true) {
+            if (currentMode !== 'M') return;
+            
+            // Update local state
+            if (inputName === 'A') {
+                currentA = value;
+            } else {
+                currentB = value;
+            }
+
+            // Update button styles
+            document.querySelectorAll(`[data-input-${inputName.toLowerCase()}]`).forEach(btn => {
+                if (parseInt(btn.dataset[`input${inputName.toLowerCase()}`]) === value) {
+                    btn.classList.add('btn-active');
+                    btn.classList.remove('btn-inactive');
+                } else {
+                    btn.classList.add('btn-inactive');
+                    btn.classList.remove('btn-active');
+                }
+            });
+
+            // Send command to Python server
+            if (send && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ a: currentA, b: currentB, mode: 'M' }));
+            }
+        }
+
+        // --- WebSocket Setup ---
+
+        function connectWebSocket() {
+            ws = new WebSocket(WS_URL);
+
+            ws.onopen = () => {
+                console.log('WebSocket Connected');
+                updateConnectionStatus(true);
+                // Set initial state on connect
+                // Send the current local manual state to ensure Arduino/Python sync up
+                ws.send(JSON.stringify({ mode: currentMode, a: currentA, b: currentB }));
+            };
+
+            ws.onmessage = (event) => {
+                handleMessage(event.data);
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket Disconnected. Reconnecting in 3s...');
+                updateConnectionStatus(false);
+                setTimeout(connectWebSocket, 3000); // Attempt to reconnect
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+                // ws.close(); // Let onclose handle the cleanup/reconnect
+            };
+        }
+
+        // Initialize on load
+        window.onload = () => {
+            createTruthTable();
+            connectWebSocket();
+            // Set initial UI state
+            setMode('M');
+            setManualInput('A', 0, false);
+            setManualInput('B', 0, false);
+        };
+
+    </script>
+</body>
+</html>

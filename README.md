@@ -1,220 +1,88 @@
-# 2-Bit ALU Verification System: Technical Documentation
+# ALU Hardware Verification
 
-## Overview
+An Arduino and Python test system for a physical logic circuit. It compares seven outputs against a reference table and displays results in a browser.
 
-Hardware-in-the-loop verification framework for a custom 2-bit ALU implementing UVM-inspired methodology. System architecture spans three tiers: Python testbench (stimulus generation, scoreboard), Arduino hardware bridge (signal encoding/decoding, 5kHz clock generation), and web-based real-time monitoring interface. Achieves 100% functional coverage across all 2-bit input combinations with ~150ms verification cycles (configurable to 500ms for demonstration).
+![Recorded ALU monitor with mixed results](Screenshot%20%28637%29.png)
 
-**ALU Operations:** NAND, NOT-A, OR, AND, XOR, SUM (binary addition), COUT (carry-out)
+The repository name uses “2-Bit ALU.” The implemented interface has two one-bit inputs, A and B.
+It does not implement a Verilog design or a SystemVerilog UVM environment.
 
-**Architecture:**
-```
-Web Interface (WebSocket/JSON) → Python Server (Serial/USB) → Arduino Bridge (TTL I/O) → Physical ALU
-```
+## System design
 
----
+![Stimulus and observation paths](docs/architecture.png)
 
-## ALU Specification
+Python sends input pairs over USB serial. Arduino applies those inputs and reads seven logic outputs.
+Python compares the received values with its reference table and broadcasts the result over WebSocket.
+The browser displays the current state and comparison results.
 
-| A | B | NAND | NOT-A | OR | AND | XOR | SUM | COUT |
-|---|---|------|-------|-------|----|-----|-----|-----|------|
-| 0 | 0 |  1   |   1   | 0  |  0  |  0  |  0  |  0   |
-| 0 | 1 |  1   |   1   | 1  |  0  |  1  |  1  |  0   |
-| 1 | 0 |  1   |   0   | 1  |  0  |  1  |  1  |  0   |
-| 1 | 1 |  0   |   0   | 1  |  1  |  0  |  0  |  1   |
+## Hardware connections
 
-**Clock:** 5kHz continuous (200μs period, 50% duty cycle)
+| Signal | Arduino pin | Direction |
+|---|---:|---|
+| A | 3 | Output to circuit |
+| B | 4 | Output to circuit |
+| Clock | 13 | Output to circuit |
+| NAND | 8 | Input from circuit |
+| NOT A | 9 | Input from circuit |
+| OR | 10 | Input from circuit |
+| Carry | 5 | Input from circuit |
+| Sum | 6 | Input from circuit |
+| AND | 11 | Input from circuit |
+| XOR | 12 | Input from circuit |
 
----
+The sketch configures circuit outputs as `INPUT_PULLUP` inputs on Arduino.
+Check voltage compatibility and a common ground before wiring.
+The old `peripheral.txt` mentions pin 7 as a power connection, but the sketch does not configure that pin.
 
-## Hardware Interface
+## Start the monitor
 
-### Pin Mapping (Arduino Uno)
+1. Connect the circuit according to the pin table.
+2. Open `alu_veriification.ino` in Arduino IDE.
+3. Select the board and port.
+4. Upload the sketch.
+5. Close Serial Monitor so Python can open the port.
+6. Set `ARDUINO_PORT` in `alu_server.py` to your device port.
 
-**Inputs (Arduino → ALU):**
-- A: Pin 3 (Yellow1)
-- B: Pin 4 (Yellow2)
-- CLK: Pin 13 (5kHz generated)
+Install the Python packages and start the server:
 
-**Outputs (ALU → Arduino):**
-- NAND: Pin 8 (Yellow) | NOT-A: Pin 9 (Green) | OR: Pin 10 (Blue)
-- COUT: Pin 5 (Pink) | SUM: Pin 6 (Grey) | AND: Pin 11 (White) | XOR: Pin 12 (Brown)
-
-All output pins configured with INPUT_PULLUP. Power: +5V on Pin 7.
-
----
-
-## Serial Communication Protocol
-
-**Physical:** USB Serial, 115200 baud, 8N1
-
-### Commands (PC → Arduino)
-
-- `Mab` - Manual mode: Set A=a, B=b (e.g., `M01` → A=0, B=1)
-- `R` - Enable random mode
-- `S` - Stop random mode
-
-### Data Response (Arduino → PC)
-
-Format: `[<A>,<B>|<OUTPUTS>]`
-
-Output order: NAND, NOT-A, OR, COUT, SUM, AND, XOR
-
-Example: `[0,1|1110101]` → A=0, B=1, outputs = 1,1,1,0,1,0,1
-
----
-
-## Implementation Details
-
-### Python Verification Server
-
-**Golden Reference Model:**
-```python
-EXPECTED_OUTPUTS = {
-    (0, 0): (1, 1, 0, 0, 0, 0, 0),  # NAND, NOT_A, OR, COUT, SUM, AND, XOR
-    (0, 1): (1, 1, 1, 0, 1, 0, 1),
-    (1, 0): (1, 0, 1, 0, 1, 0, 1),
-    (1, 1): (0, 0, 1, 1, 0, 1, 0)
-}
+```sh
+python -m pip install pyserial websockets
+python alu_server.py
 ```
 
-**Verification Status:** `OK` (all match), `MIXED` (partial), `ERROR` (all fail)
+Open `index.html` in a browser on the same computer.
+The page connects to `ws://127.0.0.1:8765`. The default serial configuration is `COM5` at 115200 baud.
 
-**Stimulus Modes:**
-- Sequential: Cycles (0,0)→(0,1)→(1,0)→(1,1)→repeat
-- Random: Pseudorandom A/B generation
+## Reference table
 
-**Asynchronous Architecture:**
-- ALU control loop: 500ms intervals (configurable)
-- WebSocket server: Port 8765, broadcasts state to clients
-- Non-blocking I/O via `asyncio`
+| A | B | NAND | NOT A | OR | Carry | Sum | AND | XOR |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
+| 0 | 1 | 1 | 1 | 1 | 0 | 1 | 0 | 1 |
+| 1 | 0 | 1 | 0 | 1 | 0 | 1 | 0 | 1 |
+| 1 | 1 | 0 | 0 | 1 | 1 | 0 | 1 | 0 |
 
-### Arduino Firmware
+The serial reply format is `[A,B|NAND_NOTA_OR_CARRY_SUM_AND_XOR]`, with seven adjacent digits after `|`.
+For example, `[0,1|1110101]` contains the expected outputs for A=0 and B=1.
 
-**Clock Generation:**
-- Continuous 5kHz on Pin 13 via `delayMicroseconds(100)` loop
-- ~200μs per iteration, independent of data cycles
+Firmware commands are `Mab` for a chosen input pair, `R` for random mode, and `S` to stop random mode.
+Commands end with a newline.
 
-**Command Parsing:**
-- Character accumulation until newline
-- State machine: classify (M/R/S), extract params, validate, execute
-- Buffer limit: 10 characters
+## Timing and current behavior
 
-**I/O Timing:**
-- Input application: Synchronous via `digitalWrite()`
-- Output sampling: Atomic read of all 7 outputs sequentially
-- Stabilization delay: 1ms after input change in random mode
+The Python loop advances through four input pairs at a configured interval of 0.5 seconds.
+That is two vectors per second and approximately two seconds per full sequence, before additional delays.
+The sketch uses a 100-microsecond clock half-period. Serial work adds delay, so this is not a guaranteed 5 kHz clock.
 
-### Web Interface
+The WebSocket handler ignores messages from the browser. The visible manual and random controls therefore do not control the current Python server.
+The server continues its automatic sequence.
 
-**WebSocket:** Persistent connection to `ws://127.0.0.1:8765`, JSON state broadcast
+`OK` means all seven comparisons match. `MIXED` means some match. `ERROR` means all fail or the input is invalid.
+The four reference cases do not establish timing coverage or a completed hardware verification campaign.
 
-**State Object:**
-```json
-{
-    "A": 0, "B": 1,
-    "NAND": 1, "NOT_A": 1, "OR": 1, "COUT": 0,
-    "SUM": 1, "AND": 0, "XOR": 1,
-    "VerificationStatus": "OK",
-    "VerificationDetails": {<per-operation results>},
-    "Timestamp": 1700864412.345,
-    "Mode": "AUTO"
-}
-```
+## Files and license
 
-**Visualization:**
-- Live ALU block diagram with current inputs/outputs
-- 4-row truth table with color-coded verification (green=match, red=mismatch)
-- Real-time mismatch reporting
-- Manual/Random mode control
+`alu_server.py` contains the sequencer and comparison logic. `alu_veriification.ino` contains the Arduino bridge.
+`index.html` contains the monitor. The two screenshots and `peripheral.txt` record earlier work.
 
----
-
-## Verification Methodology
-
-**Coverage:** 100% functional (4 input vectors × 7 operations = 28 assertions)
-
-**Scoreboard Pattern:**
-1. Reference model (golden truth table)
-2. Actual capture (Arduino sampling)
-3. Per-operation comparison
-4. Status aggregation (OK/MIXED/ERROR)
-5. Real-time visualization
-
-**Verification Flow:**
-```
-Stimulus Generation → Serial Command → Input Application → ALU Computation →
-Output Sampling → Packet Transmission → Parsing → Verification → 
-State Update → WebSocket Broadcast → UI Update → Loop
-```
-
-**UVM Mapping:**
-| UVM Component | Implementation |
-|---------------|----------------|
-| DUT | Physical ALU Circuit |
-| Driver | Arduino `applyInputs()` |
-| Monitor | Arduino `sendDataToPython()` |
-| Agent | Arduino Firmware |
-| Sequencer | Python `advance_inputs()` / Random Generator |
-| Scoreboard | Python `verify_outputs()` + Web Interface |
-| Environment | Python `alu_loop()` + WebSocket Server |
-
----
-
-## Performance
-
-**Cycle Timing:**
-- Production: ~150ms minimum (6.67 cycles/sec)
-- Demonstration: 500ms default (2 cycles/sec)
-
-**End-to-End Latency:** ~5-10ms (input application → UI update, excluding cycle delay)
-
-**Throughput:**
-- 500ms mode: 8 vectors/sec (2 complete truth table passes/sec)
-- 150ms mode: 26.67 vectors/sec (6.67 passes/sec)
-
-**Coverage Rate:**
-- Complete truth table: 2 seconds (500ms) or 0.6 seconds (150ms)
-
----
-
-## Operational Procedures
-
-**Startup:**
-1. Connect Arduino via USB, power ALU circuit, verify pin connections
-2. Upload `alu_veriification.ino`, confirm "STATUS: Ready" at 115200 baud
-3. Set `ARDUINO_PORT` in `alu_server.py`, run server, verify WebSocket on port 8765
-4. Open `index.html`, confirm "CONNECTED" status
-
-**Modes:**
-- Sequential: Automatic cycling through all input combinations
-- Manual: Direct A/B input control via web interface
-- Random: Continuous pseudorandom stimulus generation
-
-**Error Handling:**
-- Parsing errors: Invalid packets discarded, status="ERROR"
-- Functional errors: Recorded in VerificationDetails, status="MIXED"/"ERROR"
-- Communication errors: Serial timeout logged, WebSocket auto-reconnect (3s)
-
----
-
-## Configuration
-
-| Parameter | Location | Default | Description |
-|-----------|----------|---------|-------------|
-| `ARDUINO_PORT` | `alu_server.py` | `'COM5'` | Serial port |
-| `BAUD_RATE` | `alu_server.py` | `115200` | Serial speed |
-| `WEB_SOCKET_PORT` | `alu_server.py` | `8765` | WebSocket port |
-| `VERIFICATION_INTERVAL_SEC` | `alu_server.py` | `0.5` | Cycle time |
-| `HALF_PERIOD_US` | `alu_veriification.ino` | `100` | Clock half-period |
-
----
-
-## Dependencies
-
-**Python:** `pyserial`, `websockets`, `asyncio`  
-**Arduino:** Standard Arduino IDE libraries  
-**Web:** Modern browser with WebSocket support, Tailwind CSS (CDN)
-
----
-
-*Document Version: 1.0 | November 2024*
+[MIT](LICENSE) covers original code and documentation by Velan E. See [LICENSING.md](LICENSING.md) for dependency scope.
